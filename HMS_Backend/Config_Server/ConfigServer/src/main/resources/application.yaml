@@ -1,0 +1,19 @@
+server:
+  port: 9093
+
+
+  # cloud:
+  #   config:
+  #     server:
+  #       git:
+  #         uri: https://gitlab.com/project_group_d6/microservice-configuration
+  #         default-label: main
+  #         clone-on-start: true
+spring:
+  profiles:
+    active: native
+    
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
