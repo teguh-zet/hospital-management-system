@@ -1,12 +1,11 @@
-import web from "../../images/cardiology.jpg";
-import app from "../../images/neur.jpg";
-import dec from "../../images/anesth.jpg";
-import jan from "../../images/derm.jpg";
-import feb from "../../images/paedia.jpg";
-import mar from "../../images/Onco.jpg";
+import web from "../../images/cardiology.jpg"
+import app from "../../images/neur.jpg"
+import dec from "../../images/anesth.jpg"
+import jan from "../../images/derm.jpg"
+import feb from "../../images/paedia.jpg"
+import mar from "../../images/Onco.jpg"
 
 const Sdata = [
- 
   {
     imgsrc: web,
     title: "dr. Andi Pratama, Sp.JP",
@@ -37,6 +36,7 @@ const Sdata = [
     title: "dr. Dewi Lestari, Sp.OG",
     desc: "Spesialis Obstetri dan Ginekologi",
   },
+]
 
-];
-export default Sdata;
+export default Sdata
+
