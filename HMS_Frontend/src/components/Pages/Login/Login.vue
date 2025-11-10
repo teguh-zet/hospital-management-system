@@ -1,50 +1,84 @@
 <template>
-  <div>
+  <div class="login-page">
     <Base>
-      <br />
-      <br />
       <div class="container">
-        <div class="row mt-3">
-          <div class="col-sm-6 offset-sm-3">
-            <div class="card border-dark">
-              <div class="card-header">
-                <h3>Login Here</h3>
+        <div class="row justify-content-center align-items-center min-vh-100 py-5">
+          <div class="col-md-6 col-lg-5">
+            <div class="card login-card fade-in">
+              <div class="card-header text-center">
+                <h3 class="mb-0">
+                  <i class="bi bi-box-arrow-in-right me-2"></i>
+                  Login Here
+                </h3>
+                <p class="text-white-50 mb-0 mt-2">Welcome back! Please login to your account</p>
               </div>
-              <div class="card-body">
+              <div class="card-body p-4">
                 <form @submit.prevent="handleFormSubmit">
-                  <div class="mb-3">
-                    <label for="email" class="form-label">Enter Email</label>
+                  <div class="mb-4">
+                    <label for="email" class="form-label">
+                      <i class="bi bi-envelope me-2"></i>Email Address
+                    </label>
                     <input
-                      type="text"
+                      type="email"
                       class="form-control"
                       id="email"
-                      autocomplete="current-password"
+                      placeholder="Enter your email"
+                      autocomplete="email"
                       v-model="loginDetail.username"
+                      required
                     />
                   </div>
-                  <div class="mb-3">
-                    <label for="password" class="form-label">Enter Password</label>
+                  <div class="mb-4">
+                    <label for="password" class="form-label">
+                      <i class="bi bi-lock me-2"></i>Password
+                    </label>
                     <input
                       type="password"
                       class="form-control"
                       id="password"
+                      placeholder="Enter your password"
                       v-model="loginDetail.password"
+                      required
                     />
                   </div>
-                  <div class="text-center">
-                    <button type="submit" class="btn btn-outline-primary">
-                      Login
+                  <div class="d-grid gap-2 mb-3">
+                    <button 
+                      type="submit" 
+                      class="btn btn-primary btn-lg"
+                      :disabled="isLoading"
+                    >
+                      <span v-if="!isLoading">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>Login
+                      </span>
+                      <span v-else>
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Logging in...
+                      </span>
                     </button>
                     <button
                       type="button"
-                      class="btn btn-outline-secondary ms-2"
+                      class="btn btn-outline-secondary"
                       @click="handleReset"
+                      :disabled="isLoading"
                     >
-                      Clear
+                      <i class="bi bi-arrow-clockwise me-2"></i>Clear
                     </button>
-                    <nav class="mt-2">
-                      <router-link to="/forgot">Forgot Password ?</router-link>
-                    </nav>
+                  </div>
+                  <div class="text-center">
+                    <router-link 
+                      to="/forgot" 
+                      class="text-decoration-none text-primary"
+                    >
+                      <i class="bi bi-question-circle me-1"></i>Forgot Password?
+                    </router-link>
+                  </div>
+                  <div class="text-center mt-3">
+                    <small class="text-muted">
+                      Don't have an account? 
+                      <router-link to="/signUp" class="text-primary text-decoration-none">
+                        Sign Up
+                      </router-link>
+                    </small>
                   </div>
                 </form>
               </div>
@@ -80,54 +114,51 @@ export default {
       password: ''
     })
 
-    const handleChange = (field, value) => {
-      loginDetail.value[field] = value
-    }
+    const isLoading = ref(false)
 
     const handleFormSubmit = async () => {
-      console.log("Before sending data")
-      console.log(loginDetail.value)
-
       if (
         loginDetail.value.username.trim() === '' ||
         loginDetail.value.password.trim() === ''
       ) {
-        toast.error("Credentials is Required !!!!")
-      } else {
-        try {
-          const data = await loginUser(loginDetail.value)
-          console.log("User Logged in : ")
-          console.log(data)
-          toast.success("Logged In")
+        toast.error("Email dan Password wajib diisi!")
+        return
+      }
 
-          const roleId = data.user.roles[0].id
-          let redirectPath = '/'
-          
-          if (roleId === 500) {
-            redirectPath = '/user/admin/dashboard'
-          } else if (roleId === 501) {
-            redirectPath = '/user/doctor/dashboard'
-          } else if (roleId === 502) {
-            redirectPath = '/user/patient/dashboard'
-          } else if (roleId === 503) {
-            redirectPath = '/user/receptionist/dashboard'
-          } else if (roleId === 504) {
-            redirectPath = '/user/accountant/dashboard'
-          }
-
-          doLogin(data, () => {
-            console.log("login details saved to localstorage .. Here in Login")
-            userStore.setUser(data)
-            router.push(redirectPath)
-          })
-        } catch (error) {
-          console.log(error)
-          if (error.response && (error.response.status === 400 || error.response.status === 404)) {
-            toast.error(error.response.data.message)
-          } else {
-            toast.error("Invalid Username or Password")
-          }
+      isLoading.value = true
+      
+      try {
+        const data = await loginUser(loginDetail.value)
+        toast.success("Login berhasil! Selamat datang kembali.")
+        
+        const roleId = data.user.roles[0].id
+        let redirectPath = '/'
+        
+        if (roleId === 500) {
+          redirectPath = '/user/admin/dashboard'
+        } else if (roleId === 501) {
+          redirectPath = '/user/doctor/dashboard'
+        } else if (roleId === 502) {
+          redirectPath = '/user/patient/dashboard'
+        } else if (roleId === 503) {
+          redirectPath = '/user/receptionist/dashboard'
+        } else if (roleId === 504) {
+          redirectPath = '/user/accountant/dashboard'
         }
+
+        doLogin(data, () => {
+          userStore.setUser(data)
+          router.push(redirectPath)
+        })
+      } catch (error) {
+        console.error(error)
+        if (error.response && (error.response.status === 400 || error.response.status === 404)) {
+          toast.error(error.response.data.message || "Email atau password salah")
+        } else {
+          toast.error("Terjadi kesalahan. Silakan coba lagi.")
+        }
+      } finally {
+        isLoading.value = false
       }
     }
 
@@ -140,11 +171,78 @@ export default {
 
     return {
       loginDetail,
-      handleChange,
+      isLoading,
       handleFormSubmit,
       handleReset
     }
   }
 }
 </script>
+
+<style scoped>
+.login-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2rem 0;
+}
+
+.login-card {
+  border: none;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.login-card .card-header {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  padding: 2rem;
+}
+
+.login-card .card-body {
+  background: #fff;
+}
+
+.form-control:focus {
+  border-color: #3498db;
+  box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  border: none;
+  padding: 12px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(52, 152, 219, 0.3);
+}
+
+.btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner-border-sm {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (max-width: 768px) {
+  .login-page {
+    padding: 1rem;
+  }
+  
+  .login-card .card-header {
+    padding: 1.5rem;
+  }
+  
+  .login-card .card-body {
+    padding: 1.5rem;
+  }
+}
+</style>
 
