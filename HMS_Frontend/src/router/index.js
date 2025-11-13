@@ -3,9 +3,14 @@ import { isLoggedIn } from '../utils/auth'
 
 const routes = [
   {
+    path: '/test',
+    name: 'Test',
+    component: () => import('../components/Test.vue')
+  },
+  {
     path: '/',
     name: 'Home',
-    component: () => import('../components/Home/Home.vue')
+    component: () => import('../components/SimpleHome.vue')
   },
   {
     path: '/home',
@@ -156,6 +161,11 @@ const routes = [
         path: 'accountant/PatientAccountList',
         name: 'PatientAccountList',
         component: () => import('../components/Pages/Accountant/PatientAccountList.vue')
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('../components/Pages/Common/Profile.vue')
       }
     ]
   }
@@ -167,11 +177,17 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
+  console.log('Navigating to:', to.path)
   if (to.meta.requiresAuth && !isLoggedIn()) {
     next({ name: 'Login' })
   } else {
     next()
   }
+})
+
+// Error handling
+router.onError((error) => {
+  console.error('Router error:', error)
 })
 
 export default router

@@ -1,6 +1,7 @@
 package com.hms.services.impl;
 
 import java.time.LocalTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -58,6 +59,12 @@ public class DoctorServiceImpl implements DoctorService {
 
 		UserDto userDto = employeeDto.getUser();
 		User user = this.modelMapper.map(userDto, User.class);
+		
+		// Fix: Initialize roles if null (ModelMapper might set it to null)
+		if (user.getRoles() == null) {
+			user.setRoles(new HashSet<>());
+		}
+		
 		user.setPassword(this.passwordEncoder.encode(user.getPassword()));
 		user.setAddress(null);
 		Role role = this.roleRepo.findById(AppConstants.ROLE_DOCTOR)

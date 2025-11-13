@@ -61,6 +61,8 @@ public class UserDto {
 
 	private String bloodGroup;
 
+	private String photo;
+
 	private LocalDate dob;
 
 	private AddressDto address;

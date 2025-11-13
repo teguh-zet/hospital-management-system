@@ -73,6 +73,9 @@ public class User implements UserDetails {
 	@Column(name = "blood_group", length = 10)
 	private String bloodGroup;
 
+	@Column(name = "photo", length = 500)
+	private String photo;
+
 	@JsonFormat(pattern = "yyyy-MM-dd")
 	private LocalDate dob;
 

@@ -129,6 +129,19 @@ export default {
       
       try {
         const data = await loginUser(loginDetail.value)
+        
+        // Validate response data
+        if (!data || !data.user) {
+          toast.error("Response tidak valid dari server")
+          return
+        }
+        
+        // Check if user has roles
+        if (!data.user.roles || data.user.roles.length === 0) {
+          toast.error("User tidak memiliki role. Silakan hubungi admin.")
+          return
+        }
+        
         toast.success("Login berhasil! Selamat datang kembali.")
         
         const roleId = data.user.roles[0].id
@@ -151,11 +164,37 @@ export default {
           router.push(redirectPath)
         })
       } catch (error) {
-        console.error(error)
-        if (error.response && (error.response.status === 400 || error.response.status === 404)) {
-          toast.error(error.response.data.message || "Email atau password salah")
+        console.error('Login error:', error)
+        console.error('Error details:', {
+          message: error.message,
+          response: error.response,
+          status: error.response?.status,
+          data: error.response?.data
+        })
+        
+        // Handle different error types
+        if (error.response) {
+          // Server responded with error status
+          const status = error.response.status
+          const errorData = error.response.data
+          
+          if (status === 401 || status === 403) {
+            toast.error(errorData?.message || "Email atau password salah")
+          } else if (status === 400) {
+            toast.error(errorData?.message || "Request tidak valid")
+          } else if (status === 404) {
+            toast.error("Endpoint tidak ditemukan. Pastikan backend berjalan.")
+          } else if (status === 500) {
+            toast.error("Server error. Silakan coba lagi nanti.")
+          } else {
+            toast.error(errorData?.message || `Error ${status}: Terjadi kesalahan`)
+          }
+        } else if (error.request) {
+          // Request was made but no response received
+          toast.error("Tidak dapat terhubung ke server. Pastikan backend berjalan di http://localhost:9090")
         } else {
-          toast.error("Terjadi kesalahan. Silakan coba lagi.")
+          // Error setting up request
+          toast.error("Terjadi kesalahan saat mengirim request: " + error.message)
         }
       } finally {
         isLoading.value = false
