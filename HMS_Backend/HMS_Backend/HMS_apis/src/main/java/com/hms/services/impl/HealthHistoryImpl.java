@@ -7,18 +7,27 @@ import java.util.stream.Collectors;
 
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import com.hms.entities.Doctor;
 import com.hms.entities.Health_History;
 import com.hms.entities.Medicine;
 import com.hms.entities.Patient;
+import com.hms.entities.User;
 import com.hms.entities.Ward;
+import com.hms.events.AppointmentEvent;
+import com.hms.events.AuditEvent;
+import com.hms.events.PaymentEvent;
+import com.hms.events.ResourceEvent;
 import com.hms.exceptions.ResourceNotFoundException;
 import com.hms.payloads.HealthHistoryDto;
 import com.hms.repository.HealthHistoryRepo;
 import com.hms.repository.PatientRepo;
 import com.hms.repository.WardRepo;
 import com.hms.services.HealthHistoryService;
+import com.hms.services.RabbitMQProducerService;
 
 @Service
 public class HealthHistoryImpl implements HealthHistoryService {
@@ -35,6 +44,9 @@ public class HealthHistoryImpl implements HealthHistoryService {
 	@Autowired
 	private WardRepo wardRepo;
 
+	@Autowired
+	private RabbitMQProducerService rabbitMQProducerService;
+
 	// add patient appointment (create health history )
 	@Override
 	public HealthHistoryDto addAppointment(HealthHistoryDto healthDto, Integer patientId) {
@@ -50,7 +62,45 @@ public class HealthHistoryImpl implements HealthHistoryService {
 		healths.setMedicines(new ArrayList<Medicine>());
 		Health_History newHealths = this.healthRepo.save(healths);
 
+		// Publish Appointment Created Event ke RabbitMQ
+		publishAppointmentCreatedEvent(newHealths, patient);
+
+		// Publish Audit Event
+		publishAuditEvent("CREATE", "APPOINTMENT", String.valueOf(newHealths.getId()),
+				"Appointment created for patient: " + patient.getUser().getFirstName() + " "
+						+ patient.getUser().getLastName());
+
 		return this.modelMapper.map(newHealths, HealthHistoryDto.class);
+	}
+
+	/**
+	 * Helper method untuk publish Appointment Created Event
+	 */
+	private void publishAppointmentCreatedEvent(Health_History healthHistory, Patient patient) {
+		AppointmentEvent event = new AppointmentEvent();
+		event.setEventType("CREATED");
+		event.setHealthHistoryId(healthHistory.getId());
+		event.setPatientId(patient.getId());
+		event.setPatientName(patient.getUser().getFirstName() + " " + patient.getUser().getLastName());
+		event.setPatientEmail(patient.getUser().getEmail());
+		event.setAppointmentDate(healthHistory.getAppointmentDate());
+		event.setAppointmentTime(healthHistory.getAppointmentTime());
+		event.setSymptoms(healthHistory.getSymptoms());
+		event.setPaymentStatus(healthHistory.getPaymentStatus());
+		event.setTimestamp(System.currentTimeMillis());
+
+		// Jika ada doctor yang assigned
+		if (patient.getDoctor() != null) {
+			Doctor doctor = patient.getDoctor();
+			event.setDoctorId(doctor.getId());
+			if (doctor.getEmployee() != null && doctor.getEmployee().getUser() != null) {
+				User doctorUser = doctor.getEmployee().getUser();
+				event.setDoctorName(doctorUser.getFirstName() + " " + doctorUser.getLastName());
+				event.setDoctorEmail(doctorUser.getEmail());
+			}
+		}
+
+		rabbitMQProducerService.publishAppointmentEvent(event);
 	}
 
 	// ---------------------------------------------------------------------------------------------------------
@@ -109,6 +159,25 @@ public class HealthHistoryImpl implements HealthHistoryService {
 		Health_History health = this.healthRepo.findById(healthId)
 				.orElseThrow(() -> new ResourceNotFoundException("Health_History ", "health id", healthId));
 
+		Patient patient = health.getPatient();
+
+		// Publish Appointment Cancelled Event
+		AppointmentEvent event = new AppointmentEvent();
+		event.setEventType("CANCELLED");
+		event.setHealthHistoryId(healthId);
+		event.setPatientId(patient.getId());
+		event.setPatientName(patient.getUser().getFirstName() + " " + patient.getUser().getLastName());
+		event.setPatientEmail(patient.getUser().getEmail());
+		event.setAppointmentDate(health.getAppointmentDate());
+		event.setAppointmentTime(health.getAppointmentTime());
+		event.setTimestamp(System.currentTimeMillis());
+		rabbitMQProducerService.publishAppointmentEvent(event);
+
+		// Publish Audit Event
+		publishAuditEvent("DELETE", "APPOINTMENT", String.valueOf(healthId),
+				"Appointment cancelled for patient: " + patient.getUser().getFirstName() + " "
+						+ patient.getUser().getLastName());
+
 		this.healthRepo.delete(health);
 	}
 
@@ -144,7 +213,58 @@ public class HealthHistoryImpl implements HealthHistoryService {
 		healths.setAdmitDate(LocalDate.now());
 
 		Health_History updatedHealth = this.healthRepo.save(healths);
+
+		// Publish Appointment Admitted Event
+		publishAppointmentAdmittedEvent(updatedHealth, patient, ward);
+
+		// Publish Resource Event (Bed Allocated)
+		ResourceEvent resourceEvent = new ResourceEvent();
+		resourceEvent.setEventType("BED_ALLOCATED");
+		resourceEvent.setResourceType("BED");
+		resourceEvent.setResourceId(healthDto.getAllocatedBed());
+		resourceEvent.setWardId(wardId);
+		resourceEvent.setBedNumber(healthDto.getAllocatedBed());
+		resourceEvent.setStatus("OCCUPIED");
+		resourceEvent.setPatientId(patient.getId());
+		resourceEvent.setHealthHistoryId(updatedHealth.getId());
+		resourceEvent.setTimestamp(System.currentTimeMillis());
+		rabbitMQProducerService.publishResourceEvent(resourceEvent);
+
+		// Publish Audit Event
+		publishAuditEvent("UPDATE", "APPOINTMENT", String.valueOf(updatedHealth.getId()),
+				"Patient admitted to ward: " + wardId + ", bed: " + healthDto.getAllocatedBed());
+
 		return this.modelMapper.map(updatedHealth, HealthHistoryDto.class);
+	}
+
+	/**
+	 * Helper method untuk publish Appointment Admitted Event
+	 */
+	private void publishAppointmentAdmittedEvent(Health_History healthHistory, Patient patient, Ward ward) {
+		AppointmentEvent event = new AppointmentEvent();
+		event.setEventType("ADMITTED");
+		event.setHealthHistoryId(healthHistory.getId());
+		event.setPatientId(patient.getId());
+		event.setPatientName(patient.getUser().getFirstName() + " " + patient.getUser().getLastName());
+		event.setPatientEmail(patient.getUser().getEmail());
+		event.setAppointmentDate(healthHistory.getAppointmentDate());
+		event.setAppointmentTime(healthHistory.getAppointmentTime());
+		event.setWardId(ward.getId());
+		event.setAllocatedBed(healthHistory.getAllocatedBed());
+		event.setPaymentStatus(healthHistory.getPaymentStatus());
+		event.setTimestamp(System.currentTimeMillis());
+
+		if (patient.getDoctor() != null) {
+			Doctor doctor = patient.getDoctor();
+			event.setDoctorId(doctor.getId());
+			if (doctor.getEmployee() != null && doctor.getEmployee().getUser() != null) {
+				User doctorUser = doctor.getEmployee().getUser();
+				event.setDoctorName(doctorUser.getFirstName() + " " + doctorUser.getLastName());
+				event.setDoctorEmail(doctorUser.getEmail());
+			}
+		}
+
+		rabbitMQProducerService.publishAppointmentEvent(event);
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
@@ -155,6 +275,8 @@ public class HealthHistoryImpl implements HealthHistoryService {
 				.orElseThrow(() -> new ResourceNotFoundException("HealthHistory ", "health id", healthId));
 
 		Patient patient = healths.getPatient();
+		Ward ward = patient.getWard();
+		String allocatedBed = healths.getAllocatedBed();
 
 		patient.setAdmitStatus(false);
 		patient.setCurrentStatus(false);
@@ -168,7 +290,49 @@ public class HealthHistoryImpl implements HealthHistoryService {
 		healths.setDischargeDate(LocalDate.now());
 
 		Health_History updatedHealth = this.healthRepo.save(healths);
+
+		// Publish Appointment Discharged Event
+		publishAppointmentDischargedEvent(updatedHealth, patient);
+
+		// Publish Resource Event (Bed Released)
+		if (ward != null && allocatedBed != null) {
+			ResourceEvent resourceEvent = new ResourceEvent();
+			resourceEvent.setEventType("BED_RELEASED");
+			resourceEvent.setResourceType("BED");
+			resourceEvent.setResourceId(allocatedBed);
+			resourceEvent.setWardId(ward.getId());
+			resourceEvent.setBedNumber(allocatedBed);
+			resourceEvent.setStatus("AVAILABLE");
+			resourceEvent.setPatientId(patient.getId());
+			resourceEvent.setHealthHistoryId(updatedHealth.getId());
+			resourceEvent.setTimestamp(System.currentTimeMillis());
+			rabbitMQProducerService.publishResourceEvent(resourceEvent);
+		}
+
+		// Publish Audit Event
+		publishAuditEvent("UPDATE", "APPOINTMENT", String.valueOf(updatedHealth.getId()),
+				"Patient discharged: " + patient.getUser().getFirstName() + " "
+						+ patient.getUser().getLastName());
+
 		return this.modelMapper.map(updatedHealth, HealthHistoryDto.class);
+	}
+
+	/**
+	 * Helper method untuk publish Appointment Discharged Event
+	 */
+	private void publishAppointmentDischargedEvent(Health_History healthHistory, Patient patient) {
+		AppointmentEvent event = new AppointmentEvent();
+		event.setEventType("DISCHARGED");
+		event.setHealthHistoryId(healthHistory.getId());
+		event.setPatientId(patient.getId());
+		event.setPatientName(patient.getUser().getFirstName() + " " + patient.getUser().getLastName());
+		event.setPatientEmail(patient.getUser().getEmail());
+		event.setAppointmentDate(healthHistory.getAppointmentDate());
+		event.setDischargeDate(healthHistory.getDischargeDate());
+		event.setPaymentStatus(healthHistory.getPaymentStatus());
+		event.setTimestamp(System.currentTimeMillis());
+
+		rabbitMQProducerService.publishAppointmentEvent(event);
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
@@ -182,6 +346,27 @@ public class HealthHistoryImpl implements HealthHistoryService {
 		healths.setPaymentDate(LocalDate.now());
 
 		Health_History updatedHealth = this.healthRepo.save(healths);
+
+		// Publish Payment Event
+		Patient patient = updatedHealth.getPatient();
+		PaymentEvent paymentEvent = new PaymentEvent();
+		paymentEvent.setEventType("PROCESSED");
+		paymentEvent.setHealthHistoryId(Id);
+		paymentEvent.setPatientId(patient.getId());
+		paymentEvent.setPatientName(patient.getUser().getFirstName() + " " + patient.getUser().getLastName());
+		paymentEvent.setPatientEmail(patient.getUser().getEmail());
+		paymentEvent.setAmount(amt);
+		paymentEvent.setTotalAmount(updatedHealth.getPaidAmount());
+		paymentEvent.setPaymentStatus(updatedHealth.getPaymentStatus());
+		paymentEvent.setPaymentMethod("CASH"); // Default, bisa di-extend
+		paymentEvent.setTimestamp(System.currentTimeMillis());
+		rabbitMQProducerService.publishPaymentEvent(paymentEvent);
+
+		// Publish Audit Event
+		publishAuditEvent("UPDATE", "PAYMENT", String.valueOf(Id),
+				"Payment processed: " + amt + " for patient: " + patient.getUser().getFirstName() + " "
+						+ patient.getUser().getLastName());
+
 		return this.modelMapper.map(updatedHealth, HealthHistoryDto.class);
 	}
 
@@ -229,4 +414,34 @@ public class HealthHistoryImpl implements HealthHistoryService {
 	}
 
 	// --------------------------------------------------------------------------------------------------------------------
+
+	/**
+	 * Helper method untuk publish Audit Event
+	 */
+	private void publishAuditEvent(String actionType, String entityType, String entityId, String description) {
+		AuditEvent auditEvent = new AuditEvent();
+		auditEvent.setActionType(actionType);
+		auditEvent.setEntityType(entityType);
+		auditEvent.setEntityId(entityId);
+		auditEvent.setDescription(description);
+		auditEvent.setStatus("SUCCESS");
+		auditEvent.setTimestamp(System.currentTimeMillis());
+
+		// Get current user from security context
+		try {
+			Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+			if (authentication != null && authentication.getPrincipal() instanceof User) {
+				User currentUser = (User) authentication.getPrincipal();
+				auditEvent.setUserId(currentUser.getId());
+				auditEvent.setUsername(currentUser.getEmail());
+				if (currentUser.getRoles() != null && !currentUser.getRoles().isEmpty()) {
+					auditEvent.setUserRole(currentUser.getRoles().iterator().next().getName());
+				}
+			}
+		} catch (Exception e) {
+			// If unable to get user, continue without user info
+		}
+
+		rabbitMQProducerService.publishAuditEvent(auditEvent);
+	}
 }
